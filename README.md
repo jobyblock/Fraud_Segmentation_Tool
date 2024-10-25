@@ -1,1 +1,1 @@
-# Fraud_Segmentatoin_Tool
+# Fraud_Segmentation_Tool
