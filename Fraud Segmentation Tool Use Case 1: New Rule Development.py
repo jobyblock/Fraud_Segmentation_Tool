@@ -9,25 +9,26 @@
 # MAGIC
 # MAGIC Fraud Decision Scientsits often have to clean up rules, this can invovle a couple of primary activities, namely:
 # MAGIC
-# MAGIC a. changing the splitting points of features that are currently being used to decrease action rate or increase accuracy
+# MAGIC   a. creating new rules from scratch given a new feature or set of features
 # MAGIC
-# MAGIC b. adding additional risk splitters to existing rules to improve either accuracy or action rate
+# MAGIC  
+# MAGIC   b. changing the splitting points of features that are currently being used to decrease action rate or increase accuracy
 # MAGIC
-# MAGIC c. creating new rules from scratch given a new feature or set of features
+# MAGIC   c. adding additional risk splitters to existing rules to improve either accuracy or action rate
 # MAGIC
-# MAGIC This is the first script in a series of scripts that goes over how to automate the process and improve efficiency, creating a feature driver table that will then be used to conduct segmentation and evaluate performance.
 # MAGIC
-# MAGIC This demo starts with a common use case, improving a rule's performance. The rule chosen was **anz_fraud_online_network_address_phone_checks_v2_migrated**.
+# MAGIC This script goes over the first use-case, creating a new rule from scratch given a risk-indicator.
 # MAGIC
-# MAGIC The steps in this script include:
 # MAGIC
 # MAGIC     I. Set Up (imports, connection to snowflake)
-# MAGIC     II. Grabbing the features used in the target rule 
-# MAGIC     III. (Optional) Finding additional relevant features to use in segmentation 
-# MAGIC     IV. Creating the feature driver table 
-# MAGIC     V. Creating the analytical driver tables (control group, historical performance)
-# MAGIC     VI. 
-# MAGIC
+# MAGIC     II. Creating the feature driver table 
+# MAGIC     III. Prep the data for the decision tree algorithim
+# MAGIC     IV. Preliminary analysis on Decision Tree Results
+# MAGIC     V. Create driver tables to calculate rule KPI
+# MAGIC     VI. Rule KPI assessment (Decline rate, coverage, accuracy)
+# MAGIC     VII. Optional modify rule to improve performance, reassessing rule KPI
+# MAGIC     VIII. Export rule to .py file
+# MAGIC   
 # MAGIC
 
 # COMMAND ----------
@@ -137,7 +138,7 @@ conn.execute('use warehouse ADHOC__XLARGE')
 
 # MAGIC %md
 # MAGIC
-# MAGIC # Creating the feature driver table
+# MAGIC # Step 2: Creating the feature driver table
 # MAGIC
 # MAGIC
 # MAGIC Doordash has seen a higher toxicity in recent weeks than normal, and an additional rule is needed to mitigate these losses. To do so, we must first create a driver table which consists of:
@@ -151,10 +152,12 @@ conn.execute('use warehouse ADHOC__XLARGE')
 # MAGIC
 # MAGIC We have to specify some inputs for these functions, namely:
 # MAGIC
-# MAGIC          1. the time range of the analysis, 
-# MAGIC          2. the par region
-# MAGIC          3. checkpoint
-# MAGIC          4. risk splitting features (for create_feature_driver) 
+# MAGIC     1. the time range of the analysis, 
+# MAGIC     2. the par region
+# MAGIC     3. checkpoint
+# MAGIC     4. risk splitting features (for create_feature_driver) 
+# MAGIC     5. the name of the table you will create in snowflake, in the cell below this is the `feature_base_driver_name` variable
+# MAGIC
 # MAGIC Note, this function is designed to analyze the **new user** population, if the rule in question should examine tenured users, you will have to modify the underlying function.
 # MAGIC
 # MAGIC If you are subsetting the new user population to first orders, or a specific merchant, further filtering must be done with SQL.
@@ -243,7 +246,19 @@ create_control_table(control_table_name, USER_NAME, start_date, end_date, checkp
 
 # MAGIC %md
 # MAGIC
-# MAGIC # Create the pandas dataframe for the decision tree by pulling data from SF using SQL
+# MAGIC # Step 3: Prepare data for decision tree driver:
+# MAGIC
+# MAGIC There are four substeps:
+# MAGIC     
+# MAGIC     pulling the data, which we do in the `pull_decision tree_driver` function 
+# MAGIC      
+# MAGIC     fix datatypes of the feature driver created from the above function (accomplished with the get_datatypes function)
+# MAGIC
+# MAGIC     split the data in train and validation datasets using the prep_for_training function
+# MAGIC
+# MAGIC     specify decision tree parameters
+# MAGIC
+# MAGIC
 
 # COMMAND ----------
 
@@ -390,14 +405,13 @@ logs
 
 tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=0, max_depth=8)
 
-
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC
-# MAGIC # Find high potential segments
+# MAGIC # Step 5: Preliminary assessment of Decision Tree Results
 # MAGIC
-# MAGIC The next function iterates over each tree created and identifies the logic used to get to each terminal node across all trees.
+# MAGIC Examine the results of the decision tree. We will look at the control group P2D0 in the time range, as well as a simplified version of the decline volume. We will calculate the true decline rate metrics and coverage in a later step
 
 # COMMAND ----------
 
@@ -429,7 +443,7 @@ for k,v in final_dict.items():
 
 # MAGIC %md 
 # MAGIC
-# MAGIC # Assess which rules are valuable
+# MAGIC ## Find high potential segments 
 
 # COMMAND ----------
 
@@ -528,6 +542,7 @@ performance_dict = evaluate_rules(doordash_driver, 'doordash_driver', final_dict
 
 # COMMAND ----------
 
+#look at performance of different rules
 performance_df = pd.DataFrame(performance_dict.values(), columns =['new_rule_ctrl_trxn_ct','new_rule_p2_d0','rule'])
 performance_df.sort_values(by='new_rule_p2_d0', ascending=False).head(50) 
 
@@ -535,7 +550,7 @@ performance_df.sort_values(by='new_rule_p2_d0', ascending=False).head(50)
 
 # MAGIC %md 
 # MAGIC
-# MAGIC # Analyze performance splitting power
+# MAGIC ## Specify a rule from the above top performing segments
 
 # COMMAND ----------
 
@@ -568,13 +583,14 @@ rule_to_author = modify_segment_name(rule_to_author, 'test_segment')
 
 # MAGIC %md
 # MAGIC
-# MAGIC # create driver tables for important metrics 
+# MAGIC #Step V: Create driver tables for KPI assessment
 # MAGIC
 # MAGIC Such as unique declines (# and $), total control group p2 d0, etc.
 
 # COMMAND ----------
 
 # MAGIC %autoreload 2
+# MAGIC #unique declines
 # MAGIC unique_rule_decline_table_name = 'jobyg_fraud_segmentation_tool_demo_unique_declines'
 # MAGIC from functions import create_unique_decline_table
 # MAGIC create_unique_decline_table(unique_rule_decline_table_name, 
@@ -590,7 +606,7 @@ rule_to_author = modify_segment_name(rule_to_author, 'test_segment')
 # COMMAND ----------
 
 from functions import get_decline_rate_denom
-
+#calaculating the number of tokens and the total amount of gmv attempted
 decline_rate_denoms = get_decline_rate_denom(start_date, end_date, par_region, checkpoint, USER_NAME, conn)
 
 decline_rate_denom_ct = int(decline_rate_denoms.token_ct.values)
@@ -598,6 +614,7 @@ decline_rate_denom_amt = int(decline_rate_denoms.order_amount.values)
 
 # COMMAND ----------
 
+#calculate the control group loss
 coverage_denom = dtree_driver.p2_overdue_d0_local.sum() #dtree driver is the inner join between attempt control group and all transaction attempts, summing the overdue column gives us the total new user control group p2_overdue for our respective par region and checkpoint
 
 
@@ -605,10 +622,9 @@ coverage_denom = dtree_driver.p2_overdue_d0_local.sum() #dtree driver is the inn
 
 # MAGIC %md 
 # MAGIC
-# MAGIC #Create driver table for KPI analysis
+# MAGIC ##Create driver table for KPI analysis of the new rule
 
 # COMMAND ----------
-
 
 new_rule_table_name = 'jobyg_new_fraud_segmentation_tool_notebook_usecase1_demo'
 grab_new_rule_performance(new_rule_table_name=  new_rule_table_name,
@@ -650,7 +666,7 @@ validation.head()
 
 # MAGIC %md 
 # MAGIC
-# MAGIC #Calculate KPI
+# MAGIC #Step VI: Calculate KPI of the new rule
 
 # COMMAND ----------
 
@@ -660,7 +676,7 @@ analyze_performance('validation','test_segment',decline_rate_denom_ct,decline_ra
 
 # MAGIC %md
 # MAGIC
-# MAGIC ## Expand upon the initial rule
+# MAGIC # Step VII: (Optional) Expand upon the initial rule
 # MAGIC
 # MAGIC I wanted to see if I can improve the performance of this rule by adding another commonly seen risk splitter, `(sp_c_order_attempt_cnt_d1 >= 3.5)`. The functions created make reassessing the performance of a slightly modified rule -- quick.
 # MAGIC
@@ -723,7 +739,7 @@ analyze_performance('analysis_df','test_segment',decline_rate_denom_ct,decline_r
 
 # MAGIC %md
 # MAGIC
-# MAGIC # Still wasn't that pleased with performance
+# MAGIC ## Continue to refine the rule performance
 # MAGIC
 # MAGIC Let's try one additional modification focusing on `sp_c_order_amt_same_merchant_as_current_h24_0`, increasing the threshold from 13.8 to 21
 
@@ -765,7 +781,7 @@ analyze_performance('analysis_df','test_segment',decline_rate_denom_ct,decline_r
 
 # MAGIC %md
 # MAGIC
-# MAGIC #Export rule to python
+# MAGIC # Step VIII: Export rule to python
 
 # COMMAND ----------
 
@@ -774,129 +790,3 @@ analyze_performance('analysis_df','test_segment',decline_rate_denom_ct,decline_r
 # MAGIC final_rule2 = create_py_rule(final_rule2,  rule_name='AU_Online_Doordash_rule.py', path_name ='/Workspace/Users/jobyg@squareup.com/Fraud Segmentation Tool /',debug=False)
 # MAGIC
 # MAGIC
-
-# COMMAND ----------
-
-|from functions import create_historical_decline_table, create_unique_decline_table
-rule_decline_table_name = 'jobyg_'+target_rule+'_declines'
-unique_rule_decline_table_name = 'jobyg_'+target_rule+'_unique_declines'
-
-
-print(rule_decline_table_name, unique_rule_decline_table_name)
-
-create_historical_decline_table(rule_decline_table_name=rule_decline_table_name,
-rule_list=[target_rule],
-user_name=USER_NAME,
-start_date=start_date,
-end_date=end_date,
-par_region=par_region,
-checkpoint=checkpoint,
-conn=conn)
-
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-
-
-
-# COMMAND ----------
-
-decline_rate_denoms
-
-# COMMAND ----------
-
-#now i need a new rule to work with to show performance improvement
-#chose a rule and identify those transactions in the 
-rule_to_author = performance_df.iloc[24].rule
-
-# COMMAND ----------
-
-def modify_segment_name(rule, new_segment_name):
-    rule = rule.split('END as')
-    rule.insert(1, f'END as {new_segment_name}')
-    rule = rule[:2]
-    rule = ' '.join(rule)
-    print(rule)
-    return(rule)
-
-# COMMAND ----------
-
-def add_split_condition_to_case_when(rule, split_condition, new_segment_name):
-    rule = rule_to_author.split('CASE WHEN')
-    rule.insert(1, split_condition + ' and')
-    rule.insert(0, 'CASE WHEN')
-    rule = ' '.join(rule)
-    rule = rule.split('END as')
-    rule.insert(1, f'END as {new_segment_name}')
-    rule = rule[:2]
-    rule = ' '.join(rule)
-    print(rule)
-    return(rule)
-
-# COMMAND ----------
-
-rule_to_author = add_split_condition_to_case_when(rule_to_author, first_split_logic, 'test_segment')
-
-# COMMAND ----------
-
-rule_to_author
-
-# COMMAND ----------
-
-def grab_new_rule_performance(new_rule_table_name, 
-                              rule,
-                              start_date,
-                              end_date,
-                              par_region,
-                              checkpoint, 
-                              user_name,
-                             conn):
-    query =     f'''create or replace table ap_cur_frdrisk_g.public.{new_rule_table_name} as (
-    select 
-        a.order_token,
-        a.par_region,
-        a.checkpoint,
-        a. par_process_date,
-        {rule},
-        is_in_attempt_control_group,
-        case when is_in_attempt_control_group = 1 then P2_OVERDUE_D0_LOCAL end as ctrl_p2_d0,
-        case when is_in_attempt_control_group = 1 then P2_due_LOCAL end as ctrl_p2_due,
-        from AP_CUR_R_FRDRISK.CURATED_FRAUD_RISK_RED.UNIFIED_FEATURE_DATAMART_BASE__{user_name}_DSL3_SV a
-        left join AP_CUR_RISKBI_G.CURATED_RISK_BI_GREEN.DWM_ORDER_LOSS_TAGGING  d
-        on a.order_token = d.order_token
-        where checkout_time between '{start_date}' and '{end_date}' and a.par_region = '{par_region}' and a.checkpoint = '{checkpoint}'
-        and coalesce(a.days_since_first_order_date,0) < 15);'''
-    conn.execute(query)
-
-
-
-# COMMAND ----------
-
-new_rule_table = 'jobyg_test_new_rule_performance'
-query = grab_new_rule_performance(new_rule_table, rule_to_author, start_date, end_date, par_region, checkpoint, USER_NAME, conn)
-
-# COMMAND ----------
-
-data = conn.download('''select
-
-                            count(distinct(case when test_segment = 1 then order_token end)) 
-                            as total_decline_vol,
-                            count(distinct(case when is_in_attempt_control_group =1 and test_segment = 1 then order_token end)) as ctrl_trxn_ct,
-                            sum(case when test_segment = 1 then ctrl_p2_d0 end) ctrl_p2_d0,
-                            sum(case when test_segment = 1 then ctrl_p2_due end) ctrl_p2_due,
-                            sum(case when test_segment = 1 then ctrl_p2_d0 end)/sum(case when test_segment = 1 then ctrl_p2_due end) as ctrl_p2_d0_rate
-                            from ap_cur_frdrisk_g.public.jobyg_test_new_rule_performance
-                            ;''')
-
-
-# COMMAND ----------
-
-data
-
-# COMMAND ----------
-
-

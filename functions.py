@@ -1,4 +1,11 @@
 def grab_features_and_logic_using_rule_name(target_rule,conn):
+    """
+    target_rule (str): the rule that you are interested in analyzing and improving, must be a string type
+    conn (Session): sql connection that is necessary to query snowflake tables 
+    returns:
+        rule features (list): features for the rule, sourced from AP_RAW_GREEN.GREEN.RAW_C_E_RULESENGINEKARMA_RULE_CONTENT_CHANGE
+        rule_content (str): string of the rule logic that will be used to create an executable function 
+    """
     def grab_rule_and_logic(target_rule, conn):
     #download features
         df = conn.download(f''' SELECT
@@ -31,7 +38,10 @@ def grab_features_and_logic_using_rule_name(target_rule,conn):
     
     rule_features,rule_content = grab_rule_and_logic(target_rule, conn)
     def format_code(code_str):
-
+        """
+        code_str (str): string that represents functions we want to run, in order to run,   the code must be properly linted with appropriate indention
+        returns code_str (str): code string thats been linted
+        """
         import black
 
         formatted_code = black.format_str(code_str, mode=black.FileMode())
@@ -41,6 +51,7 @@ def grab_features_and_logic_using_rule_name(target_rule,conn):
     rule_content = format_code(rule_content)
     print(rule_content)
     return(rule_features,rule_content)
+
 def format_code(code_str):
 
         import black
@@ -50,6 +61,11 @@ def format_code(code_str):
         return formatted_code
 
 def format_rule(rule,features):
+    """
+    rule (string): rule logic in string format, needs to be meet python's expectation before it will work as an executable function
+    features (list): list of features used in the rule
+    returns executable_rule (string): a string version of a function that matches python's expectations and will run 
+    """
     import re
     #function to make slight changes to the function used in the rule to return 1 if a token is impacted by
    
@@ -86,12 +102,28 @@ def grab_rule_content_for_rule(target_rule,conn):
     return(rule_content)
 
 def dedupe_list(inp_list):
+    """
+    input list (list): list of features
+    returns input list (list) list of features with no duplicates, necessary to prevent creating the same column multiple
+    times in future sql pulls
+    """
     inp_list = set(inp_list)
     inp_list = list(inp_list)
     return(inp_list)
 
 def create_feature_table_using_rule_name(feat_table_name, target_rule, conn, user_name, start_date=None, end_date =None, debug_mode=True):
-    
+    """
+    feat_table_name (string): name that will be used to create a table in the  AP_CUR_FRDRISK_G.public database and schema
+    feature_list (list): the deduped list of features used in the rule, plus any additional features of interest, this will be used
+    to query AP_CUR_R_FEATSCI.CURATED_FEATURE_SCIENCE_RED.TBL_RAW_C_E_FC_DECISION_RECORD_RULE_VARS
+    conn (Session): sql connection needed to query the database
+    par_region (str): par region that will be filtered to
+    checkpoint (str): checkpoint that will be filtered to
+    user_name (string): user's ldap, necessary to query a particular authorized view
+    start_date (string): start date of the analytical window
+    end_date (string): end date of the analytical window
+    debug_mode (True/False): A parameter that if set to true will not run the query, but will print it, useful for debugging as this function can take hours
+    """
     # print(feature_set)
     #sp_c_online_order_count_h48_0
     query_intro = f'''create or replace table AP_CUR_FRDRISK_G.public.{feat_table_name} as (
@@ -129,6 +161,16 @@ def create_feature_table_using_rule_name(feat_table_name, target_rule, conn, use
 
 
 def create_historical_decline_table(table_name, rule_list, start_date, end_date,  conn, ):
+    """
+    rule_decilne_table_name (string): name of the table to hold the historical decline data for the given rules
+    rule_list (list): list of rules that are being analyzed
+    start_date (string): start date of the analytical window
+    end_date (string): end date of the analytical window
+    par_region (string): par region that the query will filter to
+    checkpoint (string): checkpoint that the query will filter to
+    conn (Session): sql connection that is necessary to query snowflake tables 
+    returns: nothing, but creates the dataframe ap_cur_frdrisk_g.public.{rule_decline_table_name}
+    """    
     sql = f"""CREATE or replace table ap_cur_frdrisk_g.public.{table_name} AS (SELECT 
         a.key_Event_info_id, EVENT_INFO_EVENT_TIME, rule_id, par_region, checkpoint,
         FROM  AP_CUR_R_FEATSCI.curated_feature_science_red.TBL_RAW_C_E_FC_DECISION_RECORD_RULES__jobyg_DSL3_SV a
@@ -147,9 +189,15 @@ def create_historical_decline_table(table_name, rule_list, start_date, end_date,
     conn.execute(sql)
 
 def find_additional_relevant_features(feature_list, conn, username):
+    """
+    feat_list (list): deduped list of features used in the rule, plus any additional features of interest
+    username (string): user ldap, necessary to query a user's authorized view
+    conn (Session): sql connection that is necessary to query snowflake tables 
+    returns feat_df (pandas dataframe): dataframe of additional features that matches the strings specified in the entries
+    of features_list_of_interest
+    """
     import pandas as pd
-    """
-    """
+
     today = pd.Timestamp.now().normalize()
     one_week_ago = (today - pd.DateOffset(weeks=1)).strftime('%Y-%m-%d')
     query = f'''select distinct var_name from AP_CUR_R_FEATSCI.CURATED_FEATURE_SCIENCE_RED.TBL_RAW_C_E_FC_DECISION_RECORD_RULE_VARS__{username}_DSL3_SV  where par_process_Date = '{one_week_ago}';'''
@@ -243,6 +291,16 @@ def create_historical_decline_table(rule_decline_table_name,
                                     checkpoint, 
                                     conn,
                                     need_decline_rate_denom=False):
+        """
+        rule_decilne_table_name (string): name of the table to hold the historical decline data for the given rules
+        rule_list (list): list of rules that are being analyzed
+        start_date (string): start date of the analytical window
+        end_date (string): end date of the analytical window
+        par_region (string): par region that the query will filter to
+        checkpoint (string): checkpoint that the query will filter to
+        conn (Session): sql connection that is necessary to query snowflake tables 
+        returns: nothing, but creates the dataframe ap_cur_frdrisk_g.public.{rule_decline_table_name}
+        """    
     print(f'identifying historical declines for the following rules:{rule_list}')
     rule_decline_sql = f"""CREATE or replace table ap_cur_frdrisk_g.public.{rule_decline_table_name} AS (SELECT 
         a.order_token, a.key_Event_info_id, a.event_info_event_time, a.rule_id, a.par_region, a.checkpoint,
@@ -264,7 +322,16 @@ def create_historical_decline_table(rule_decline_table_name,
     print(f'finished creating ap_cur_frdrisk_g.public.{rule_decline_table_name}')
 
 def create_unique_decline_table(unique_decline_table_name, user_name, start_date, end_date, par_region, checkpoint, conn): 
-
+    """
+    unique_decline_table_name (string): name of the table to hold the historical unique decline data
+    start_date (string): start date of the analytical window
+    end_date (string): end date of the analytical window
+    par_region (string): par region that the query will filter to
+    checkpoint (string): checkpoint that the query will filter to
+    user_name (string): user ldap, necessary to query authorized views
+    conn (Session): sql connection that is necessary to query snowflake tables 
+    returns: nothing, but creates the dataframe ap_cur_frdrisk_g.public.{unique_decline_table_name}
+    """    
     unique_decline_driver = f"""CREATE or replace table ap_cur_frdrisk_g.public.{unique_decline_table_name} as (
      SELECT order_token,EVENT_INFO_EVENT_TIME
     ,count(distinct rule_id) as N_decline
@@ -282,6 +349,7 @@ def create_unique_decline_table(unique_decline_table_name, user_name, start_date
     print(f'finished creating the unique decline driver')
 
 def get_decline_rate_denom(start_date, end_date, par_region, checkpoint, user_name, conn):
+    
     decline_rate_denom_q = f'''
         select checkpoint,
                par_region, 
@@ -331,6 +399,15 @@ def pull_decision_tree_driver(feat_driver_table,
                                 control_token_table,
                                 target_column,
                                 conn):
+    """
+    feat_drier_table (string): the table name that was used to store relevant new users features
+    control_token_table (string): the table name tha identifies control group transactions
+    target_column (string): either 'p2_d0' or  'ntl', this column determines the binary classification objective
+    either when a transaction has an ntl >0 or p2_d0 > 0
+    conn (Session): sql connection that is necessary to query snowflake tables 
+    returns (pandas dataframe): a dataframe that has all the features, for the control group, and a column 'target' that takes value 1 of the 
+    transaction has a {target_column} > 0
+    """
     decision_tree_driver = 'Select A.*'
     if target_column.lower() == 'p2_d0':
         decision_tree_driver += f''',b.p2_overdue_d0_local    
@@ -356,6 +433,10 @@ def pull_decision_tree_driver(feat_driver_table,
 
 #function used to make a string representation of a function into an executable function
 def string_to_function(func_str):
+    """
+    func_string (string): a string that represents a function, (i.e. rule logic)
+    returns function: the same string, but as an executable string
+    """
     # Create a local namespace dictionary to execute the function string
     local_namespace = {}
     # Execute the function string to define the function in the local namespace
@@ -365,6 +446,11 @@ def string_to_function(func_str):
 
 
 def get_datatypes(decision_tree_driver):
+    """
+    decision_tree_driver (pandas dataframe): the output of pull_decision_tree_driver
+    returns decision_tree_driver (pandas dataframe) a properly datatyped version of the pandas dataframe that will be able to
+    passed into the tensorflow decision tree implementation with minimal issues 
+    """
     import dateutil.parser
     import pandas as pd
     from datetime import datetime
