@@ -301,25 +301,25 @@ def create_historical_decline_table(rule_decline_table_name,
         conn (Session): sql connection that is necessary to query snowflake tables 
         returns: nothing, but creates the dataframe ap_cur_frdrisk_g.public.{rule_decline_table_name}
         """    
-    print(f'identifying historical declines for the following rules:{rule_list}')
-    rule_decline_sql = f"""CREATE or replace table ap_cur_frdrisk_g.public.{rule_decline_table_name} AS (SELECT 
+        print(f'identifying historical declines for the following rules:{rule_list}')
+        rule_decline_sql = f"""CREATE or replace table ap_cur_frdrisk_g.public.{rule_decline_table_name} AS (SELECT 
         a.order_token, a.key_Event_info_id, a.event_info_event_time, a.rule_id, a.par_region, a.checkpoint,
         FROM  AP_CUR_R_FEATSCI.curated_feature_science_red.TBL_RAW_C_E_FC_DECISION_RECORD_RULES__jobyg_DSL3_SV a
         WHERE 1=1 
         AND (is_rejected = 'True' and is_in_treatment = 'True')
         AND a.par_process_date between '{start_date}' and '{end_date}'
         and rule_id in ( """
-    for i in range(len(rule_list)):
-        rule = rule_list[i]
-        if i != len(rule_list)-1:
-            rule_decline_sql+=f"'{rule}', "
-        else:
-            rule_decline_sql+=f"'{rule}')"
-    rule_decline_sql+=");"
-    print(f'historical decline query is {rule_decline_sql}')
+        for i in range(len(rule_list)):
+            rule = rule_list[i]
+            if i != len(rule_list)-1:
+                rule_decline_sql+=f"'{rule}', "
+            else:
+                rule_decline_sql+=f"'{rule}')"
+        rule_decline_sql+=");"
+        print(f'historical decline query is {rule_decline_sql}')
 
-    conn.execute(rule_decline_sql)
-    print(f'finished creating ap_cur_frdrisk_g.public.{rule_decline_table_name}')
+        conn.execute(rule_decline_sql)
+        print(f'finished creating ap_cur_frdrisk_g.public.{rule_decline_table_name}')
 
 def create_unique_decline_table(unique_decline_table_name, user_name, start_date, end_date, par_region, checkpoint, conn): 
     """
@@ -657,7 +657,7 @@ def dfs_all_paths(node, path, all_paths):
             return condition.replace('!=', '==')
         elif 'not in' in condition:
             return condition.replace('not in', 'in')
-        elif ('in' in condition) and ('rating' not in condition):
+        elif ('in' in condition) & (('rating' not in condition) & ('linking' not in condition)):
             return condition.replace('in', 'not in')
        
         else:

@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC
 # MAGIC # Fraud Segmentation Tool 
-# MAGIC ## Date: 10/16/2024
+# MAGIC ## Date: 11/29/2024
 # MAGIC ## Author: Joby George
 # MAGIC
 # MAGIC # Background
@@ -12,12 +12,12 @@
 # MAGIC   a. creating new rules from scratch given a new feature or set of features
 # MAGIC
 # MAGIC  
-# MAGIC   b. changing the splitting points of features that are currently being used to decrease action rate or increase accuracy
+# MAGIC   b. consolidating many rules as part of a rule deduplication effort
 # MAGIC
 # MAGIC   c. adding additional risk splitters to existing rules to improve either accuracy or action rate
 # MAGIC
 # MAGIC
-# MAGIC This script goes over the first use-case, creating a new rule from scratch given a risk-indicator.
+# MAGIC This script goes over the second use-case, creating a new rule consolidating overlapping rules into a more efficient optimized rule.
 # MAGIC
 # MAGIC
 # MAGIC     I. Set Up (imports, connection to snowflake)
@@ -140,87 +140,47 @@ conn.execute('use warehouse ADHOC__XLARGE')
 # MAGIC
 # MAGIC # Step 2: Creating the feature driver table
 # MAGIC
+# MAGIC There are 3 WPP rules that have been performing inadequately, and could be consolidated for the purposes of rule clean up and performance improvement. 
 # MAGIC
-# MAGIC Doordash has seen a higher toxicity in recent weeks than normal, and an additional rule is needed to mitigate these losses. To do so, we must first create a driver table which consists of:
+# MAGIC au_fraud_online_whitepages_email_age_v2_migrated
+# MAGIC ,au_fraud_online_wpp_network_score
+# MAGIC ,anz_fraud_online_network_address_phone_checks_v2_migrated.
 # MAGIC
-# MAGIC     1. Identifying columns
-# MAGIC     2. Features we will use to risk split the new rule
-# MAGIC     3. Control Group Identification
-# MAGIC     4. Loss metrics
+# MAGIC After doing a quick analysis, the rule that has the largest volume anz_fraud_online_network_address_phone_checks_v2_migrated, incorporates much of the other rules, by virtue of having lower thresholds, however, this rule requires the order token to have somewhat high WPP identity **and** network scores, so there are pockets of incremental declines for the population that have high values for a singular score.
 # MAGIC
-# MAGIC The functions `create_feature_driver` and `create_control_table` will take care of the above:
-# MAGIC
-# MAGIC We have to specify some inputs for these functions, namely:
-# MAGIC
-# MAGIC     1. the time range of the analysis, 
-# MAGIC     2. the par region
-# MAGIC     3. checkpoint
-# MAGIC     4. risk splitting features (for create_feature_driver) 
-# MAGIC     5. the name of the table you will create in snowflake, in the cell below this is the `feature_base_driver_name` variable
-# MAGIC
-# MAGIC Note, this function is designed to analyze the **new user** population, if the rule in question should examine tenured users, you will have to modify the underlying function.
-# MAGIC
-# MAGIC If you are subsetting the new user population to first orders, or a specific merchant, further filtering must be done with SQL.
+# MAGIC I looked into some features that I think would potentially be useful in removing false positive declines, and these were the list of features that I came up with.
+
+# COMMAND ----------
+
+feat_list = ['sp_c_order_cnt_same_merchant_as_current_h1_0'
+,'sp_c_order_cnt_same_merchant_as_current_h12_0'
+,'sp_c_order_amt_same_merchant_as_current_h6_0'
+,'sp_c_order_amt_same_merchant_as_current_h24_0'
+,'sp_c_pymt_attmpt_cnt_h1_0'
+,'sp_c_attempt_pymt_method_distinct_cnt_h12_0'
+,'sp_d_linking_hop0_order_attmpt_cnt_by_device_id_h1_0'
+,'sp_d_linking_hop0_success_order_cnt_by_device_id_d1_0'
+,'consumer_active_order_number'
+,'CONSUMER_ACCOUNT_LINKING_TYPE'
+,'WHITEPAGES_PRIMARY_EMAIL_ADDRESS_CHECKS_EMAIL_FIRST_SEEN_DAYS'
+,'WHITEPAGES_PRIMARY_PHONE_CHECKS_MATCH_TO_NAME'
+,'WHITEPAGES_PRIMARY_ADDRESS_CHECKS_MATCH_TO_NAME'
+,'consumer_is_first_order'
+,'whitepages_identity_check_score'
+,'whitepages_identity_network_score']
+
 
 # COMMAND ----------
 
 from functions import create_feature_driver, create_control_table
 #replace start date and end date for analysis
-start_date = pd.Timestamp('2024-06-01') #replace with your values
-end_date = pd.Timestamp('2024-10-05') #replace with your values
+start_date = pd.Timestamp('2024-08-21') #replace with your values
+end_date = pd.Timestamp('2024-11-13') #replace with your values
 par_region = 'AU' #replace this
 checkpoint = 'CHECKOUT_CONFIRM' #replace this 
 feature_base_driver_name='jobyg_fraud_segmentation_tool_notebook_usecase1_demo' #replace this
 
-feature_list = ['in_flight_order_merchant_id'
-             ,'in_flight_order_merchant_name'
-             ,'in_flight_order_amount'
-             ,'consumer_contact_address_postcode'
-             ,'sp_entity_linking_hop0_tot_order_cnt_by_merch_side_email_h72_0'
-             ,'sp_c_fraud_decline_attempt_d3_0'
-             ,'sp_c_fraud_decline_attempt_h12_0'
-             ,'sp_c_fraud_decline_attempt_h1_0'
-             ,'sp_c_online_ordr_attmpt_credit_card_cnt_h12_0'
-             ,'in_flight_card_name_vs_profile_name'
-             ,'sp_c_online_decl_topaz_insffcnt_fund_ordr_cnt_h12_0'
-             ,'sp_c_online_decl_topaz_insffcnt_fund_ordr_cnt_h168_0'
-             ,'sp_d_linking_hop0_order_attmpt_cnt_by_device_id_h1_0'
-             ,'sp_c_pymt_attmpt_cnt_h24_0'
-             ,'sp_c_order_attempt_cnt_d1'
-             ,'bp_udp_c_graph_model_score'
-             ,'inflight_device_id_consumer_distinct_cnt'
-             ,'sp_address_linking_total_consumer_cnt_by_raw_shipping_hash_d3_0'
-             ,'bp_c_all_device_linking_cust_cnt'
-             ,'bp_c_max_device_linking_new_cust_cnt'
-             ,'consumer_account_linking_type'
-             ,'bp_c_batch_consumer_batch_model_v1'
-             ,'model_online_od_payback_non_us_april_2024_score'
-             ,'consumer_active_order_number'
-             ,'bp_card_issuing_bank_new_p2d0'
-             ,'tmx_digital_id_confidence'
-             ,'bp_profile_email_domain_new_matured_ntl_rate'
-             ,'derived_minutes_since_account_created'
-             ,'tmx_smart_learning_fraud_rating'
-             ,'whitepages_primary_address_checks_is_commercial'
-             ,'bp_c_acct_cnt_ab_od'
-             ,'bp_c_seed_based_linking_device_id'
-             ,'sp_c_order_amt_same_merchant_as_current_h24_0'
-             ,'sp_c_order_amt_same_merchant_as_current_h12_0'
-             ,'sp_c_order_amt_same_merchant_as_current_h1_0'
-             ,'whitepages_identity_check_score'
-             ,'model_gibberish_consumer_profile_email_august_2022_score'
-             ,'in_flight_card_name_vs_profile_name'
-             ,'whitepages_identity_network_score'
-             ,'sp_c_order_attempt_cnt_d3'
-             ,'whitepages_primary_email_address_checks_email_first_seen_days'
-             ,'whitepages_primary_phone_checks_match_to_name'
-             ,'whitepages_primary_address_checks_match_to_name'
-             ,'bp_c_outstanding_balance_avg_amt_30d_v2'
-             ,'bp_c_seed_cnt_linked_by_device_id'
-             ,'bp_c_seed_cnt_linked_by_raw_shipping_address'
-             ,'bp_c_trusted_merch_side_email_yn'
-             ,'consumer_is_first_order'
-]
+feature_list = feat_list
 
 
 
@@ -271,32 +231,29 @@ dtree_driver = pull_decision_tree_driver(
     conn=conn
 )
 
-# COMMAND ----------
+# Additional Feature engineering
 
-dtree_driver.head()
+#I will only focus on when whitepages primary address **and** phone checks don't match as well as when the whitepages email age is <= 30 days, this way, rather than creating weird splits, the decision tree will be more manageable
 
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC
-# MAGIC ## Specify Doordash new user online orders in the driver
-# MAGIC
-# MAGIC Since this will be a rule designed for Doordash, we must filter the above decision tree driver to just doordash orders, we can do so with the following:
-
-# COMMAND ----------
-
-doordash_driver = run_query('select * from dtree_driver where in_flight_order_merchant_id = "134317"')
+dtree_driver = run_query('''select *,
+                         case when whitepages_primary_address_checks_match_to_name in ('No match', 'No name found')
+                         and whitepages_primary_phone_checks_match_to_name in ('No match', 'No name found') then 1 else 0 end as wpp_no_match_no_name_flag,
+                         case when coalesce(WHITEPAGES_PRIMARY_EMAIL_ADDRESS_CHECKS_EMAIL_FIRST_SEEN_DAYS,0) <= 30 then 1 else 0 end as emailage_lte_30_flag 
+                         from dtree_driver ''')
+dtree_driver = dtree_driver.drop('whitepages_primary_address_checks_match_to_name', axis =1)
+dtree_driver = dtree_driver.drop('whitepages_primary_phone_checks_match_to_name',axis=1)
+dtree_driver = dtree_driver = dtree_driver.drop('whitepages_primary_email_address_checks_email_first_seen_days',axis=1)
 
 # COMMAND ----------
 
 #convert datatypes to appropriate values, otherwise we get TypeErrors
 from functions import get_datatypes #note, if a feature is not behaving as anticipated, most commonly a string input will be treated as an integer, go to the functions script and modify the get_datatypes function to assign the feature it's appropriate type
 
-doordash_driver, dtype_dict = get_datatypes(decision_tree_driver=doordash_driver)
+dtree_driver, dtype_dict = get_datatypes(decision_tree_driver=dtree_driver)
 
 # COMMAND ----------
 
-doordash_driver.head()
+dtree_driver.head()
 
 # COMMAND ----------
 
@@ -305,12 +262,8 @@ from functions import prep_for_training
 
 #note, i added columns to the exclude feature list if i found the decision tree's splitting
 #to be too arbitrary and unexplainable and overfitting certain string variables
-X, doordash_driver   = prep_for_training(decision_tree_driver = doordash_driver,
-                                      exclude_features=['in_flight_order_merchant_name',
-                                                        'in_flight_order_merchant_id',
-                                                        'days_since_first_order_date',
-                                                        'derived_minutes_since_account_created',
-                                                        'consumer_contact_address_postcode'],
+X, dtree_driver   = prep_for_training(decision_tree_driver = dtree_driver,
+                                      exclude_features=['days_since_first_order_date'],
                                       test_ratio=.25) 
 
 from functions import split_dataset
@@ -403,7 +356,7 @@ logs
 
 # COMMAND ----------
 
-tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=200, max_depth=8)
+tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=50, max_depth=8)
 
 # COMMAND ----------
 
