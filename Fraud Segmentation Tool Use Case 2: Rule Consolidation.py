@@ -356,6 +356,44 @@ logs
 
 # COMMAND ----------
 
+tree = inspector.extract_tree(tree_idx=50)
+
+# COMMAND ----------
+
+   def negate_condition(condition):
+        """
+        Negate the given condition for the 'else' branch.
+        """
+        if '>=' in condition:
+            return condition.replace('>=', '<')
+        elif '>' in condition:
+            return condition.replace('>', '<=')
+        elif '<=' in condition:
+            return condition.replace('<=', '>')
+        elif '<' in condition:
+            return condition.replace('<', '>=')
+        elif '==' in condition:
+            return condition.replace('==', '!=')
+        elif '!=' in condition:
+            return condition.replace('!=', '==')
+        elif 'not in' in condition:
+            return condition.replace('not in', 'in')
+        elif (' in ' in condition) & ('rating' not in condition):
+            return condition.replace(' in ', ' not in ')
+        else:
+            return condition
+            
+
+# COMMAND ----------
+
+var = str(tree.root.pos_child.pos_child.condition)
+
+# COMMAND ----------
+
+negate_condition(var)
+
+# COMMAND ----------
+
 tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=50, max_depth=8)
 
 # COMMAND ----------
@@ -368,12 +406,18 @@ tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=50, max_depth=8)
 
 # COMMAND ----------
 
-from functions import dfs_all_paths
-inspector = tuned_model.make_inspector()
-tree = inspector.extract_tree(tree_idx=0)
-all_paths = []
-dfs_all_paths(tree.root, [], all_paths)
-        
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+# MAGIC from functions import dfs_all_paths
+# MAGIC inspector = tuned_model.make_inspector()
+# MAGIC tree = inspector.extract_tree(tree_idx=0)
+# MAGIC all_paths = []
+# MAGIC dfs_all_paths(tree.root, [], all_paths)
+# MAGIC         
+
+# COMMAND ----------
+
+all_paths
 
 # COMMAND ----------
 

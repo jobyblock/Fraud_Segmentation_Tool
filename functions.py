@@ -657,9 +657,8 @@ def dfs_all_paths(node, path, all_paths):
             return condition.replace('!=', '==')
         elif 'not in' in condition:
             return condition.replace('not in', 'in')
-        elif ('in' in condition) & (('rating' not in condition) & ('linking' not in condition)):
-            return condition.replace('in', 'not in')
-       
+        elif (' in ' in condition) & ('rating' not in condition):
+            return condition.replace(' in ', ' not in ')
         else:
             return condition
             
