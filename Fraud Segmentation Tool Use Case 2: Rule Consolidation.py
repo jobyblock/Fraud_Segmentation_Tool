@@ -360,40 +360,6 @@ tree = inspector.extract_tree(tree_idx=50)
 
 # COMMAND ----------
 
-   def negate_condition(condition):
-        """
-        Negate the given condition for the 'else' branch.
-        """
-        if '>=' in condition:
-            return condition.replace('>=', '<')
-        elif '>' in condition:
-            return condition.replace('>', '<=')
-        elif '<=' in condition:
-            return condition.replace('<=', '>')
-        elif '<' in condition:
-            return condition.replace('<', '>=')
-        elif '==' in condition:
-            return condition.replace('==', '!=')
-        elif '!=' in condition:
-            return condition.replace('!=', '==')
-        elif 'not in' in condition:
-            return condition.replace('not in', 'in')
-        elif (' in ' in condition) & ('rating' not in condition):
-            return condition.replace(' in ', ' not in ')
-        else:
-            return condition
-            
-
-# COMMAND ----------
-
-var = str(tree.root.pos_child.pos_child.condition)
-
-# COMMAND ----------
-
-negate_condition(var)
-
-# COMMAND ----------
-
 tfdf.model_plotter.plot_model_in_colab(tuned_model, tree_idx=50, max_depth=8)
 
 # COMMAND ----------
@@ -535,7 +501,7 @@ def evaluate_rules(df, string_df, rule_dict, threshold=0, target_rule_present=Fa
 
 
 
-performance_dict = evaluate_rules(doordash_driver, 'doordash_driver', final_dict, .05)
+performance_dict = evaluate_rules(dtree_driver, 'dtree_driver', final_dict, .05)
 
 # COMMAND ----------
 
@@ -551,7 +517,7 @@ performance_df.sort_values(by='new_rule_p2_d0', ascending=False).head(50)
 
 # COMMAND ----------
 
-rule_to_author = performance_df.iloc[169].rule
+rule_to_author = performance_df.iloc[91].rule
 rule_to_author
 
 # COMMAND ----------
